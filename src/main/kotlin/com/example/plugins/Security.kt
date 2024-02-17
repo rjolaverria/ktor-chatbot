@@ -1,22 +1,34 @@
 package com.example.plugins
 
+import com.azure.ai.openai.models.ChatRequestMessage
+import com.azure.ai.openai.models.ChatRequestSystemMessage
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
+import java.util.*
+
+class ChatSessionEntity {
+    val sessionId: UUID = UUID.randomUUID()
+    var lastActivityAt: Long = System.currentTimeMillis()
+    val history: MutableList<ChatRequestMessage> = mutableListOf()
+
+    fun onUserActivity() {
+        this.lastActivityAt = System.currentTimeMillis()
+    }
+}
 
 fun Application.configureSecurity() {
-    data class MySession(val count: Int = 0)
     install(Sessions) {
-        cookie<MySession>("MY_SESSION") {
-            cookie.extensions["SameSite"] = "lax"
-        }
+        cookie<ChatSessionEntity>("CHAT_SESSION")
     }
-    routing {
-        get("/session/increment") {
-                val session = call.sessions.get<MySession>() ?: MySession()
-                call.sessions.set(session.copy(count = session.count + 1))
-                call.respondText("Counter is ${session.count}. Refresh to increment.")
+
+    intercept(ApplicationCallPipeline.Plugins) {
+        if (call.sessions.get<ChatSessionEntity>() == null) {
+            var sessionId = call.parameters["sessionId"].orEmpty()
+            if (sessionId.isNullOrEmpty()) {
+                call.sessions.set(ChatSessionEntity())
             }
+        }
     }
 }

@@ -13,7 +13,6 @@ fun main() {
 fun Application.module() {
     configureSockets()
     configureSerialization()
-    configureDatabases()
     configureSecurity()
     configureRouting()
 }
