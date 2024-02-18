@@ -1,6 +1,6 @@
-package com.example
+package com.chat
 
-import com.example.plugins.*
+import com.chat.plugins.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*

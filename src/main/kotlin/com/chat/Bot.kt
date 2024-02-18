@@ -1,91 +1,32 @@
-package com.example.plugins
+package com.chat
 
-import aws.sdk.kotlin.services.s3.S3Client
-import aws.sdk.kotlin.services.s3.model.GetObjectRequest
-import aws.smithy.kotlin.runtime.content.decodeToString
-import aws.smithy.kotlin.runtime.io.use
-import com.azure.ai.openai.OpenAIClientBuilder
-import com.azure.ai.openai.models.*
-import com.azure.core.credential.KeyCredential
+import com.azure.ai.openai.models.ChatRequestAssistantMessage
+import com.azure.ai.openai.models.ChatRequestSystemMessage
+import com.azure.ai.openai.models.ChatRequestUserMessage
+import com.azure.ai.openai.models.ChatRole
+import com.chat.clients.OpenAI
+import com.chat.clients.Pinecone
+import com.chat.clients.S3
+import com.chat.plugins.ChatSessionEntity
 import com.google.protobuf.Value
-import io.ktor.serialization.kotlinx.*
-import io.ktor.server.application.*
-import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
-import io.pinecone.PineconeClient
-import io.pinecone.PineconeClientConfig
-import io.pinecone.proto.QueryRequest
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onCompletion
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
-import org.dotenv.vault.dotenvVault
-import java.time.Duration
-import java.util.*
+
 import kotlin.time.Duration.Companion.minutes
 
 val SESSION_TIMEOUT = 10.minutes.inWholeMilliseconds
 
-
-object UUIDSerializer : KSerializer<UUID> {
-    override val descriptor = PrimitiveSerialDescriptor("UUID", PrimitiveKind.STRING)
-
-    override fun deserialize(decoder: Decoder): UUID {
-        return UUID.fromString(decoder.decodeString())
-    }
-
-    override fun serialize(encoder: Encoder, value: UUID) {
-        encoder.encodeString(value.toString())
-    }
-}
-
-enum class Status{
-    TERMINATED,
-    EMBEDDING,
-    SEARCHING,
-    PROCESSING,
-    ANSWER
-}
-
-@Serializable
-data class ServerMessage(
-    @Serializable(with = UUIDSerializer::class)
-    val sessionId: UUID? = null,
-    val status: Status? =  null,
-    val message: String? = null,
-    val sources: List<String?>? = null
-)
-
-@Serializable
-data class UserMessage(
-    @Serializable(with = UUIDSerializer::class)
-    val sessionId: UUID,
-    val message: String
-)
-
-fun Application.configureSockets() {
-    install(WebSockets) {
-        pingPeriod = Duration.ofSeconds(15)
-        timeout = Duration.ofSeconds(15)
-        maxFrameSize = Long.MAX_VALUE
-        masking = false
-        contentConverter = KotlinxWebsocketSerializationConverter(Json)
-    }
-    routing {
-        webSocket("/bot") { // websocketSession
+object Bot {
+    suspend fun handleWebsocket(session: DefaultWebSocketServerSession) {
+        session.apply {
             val session = call.sessions.get<ChatSessionEntity>()
-            val dotenv = dotenvVault()
-
 
             sendSerialized(ServerMessage(sessionId = session?.sessionId))
 
@@ -100,7 +41,7 @@ fun Application.configureSockets() {
                     if (session == null) {
                         val msg = "No session found."
                         sendSerialized(ServerMessage(status = Status.TERMINATED, message = msg))
-                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, msg ))
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, msg))
                         return@collect
                     }
 
@@ -135,27 +76,12 @@ fun Application.configureSockets() {
 
                     // Embed question
                     sendSerialized(ServerMessage(status = Status.EMBEDDING))
-                    val openAI = OpenAIClientBuilder()
-                        .credential(KeyCredential(dotenv["OPENAI_API_KEY"]))
-                        .buildClient()
-                    val embeddingsOptions = EmbeddingsOptions(listOf(it.message));
-                    val embeddings = openAI.getEmbeddings(dotenv["EMBEDDING_MODEL"], embeddingsOptions)
-                    val embed = embeddings.data[0].embedding
+                    val embed = OpenAI.getEmbedding(it.message)
 
                     // Query by vector to verify
                     sendSerialized(ServerMessage(status = Status.SEARCHING))
-                    val pineconeConfig =
-                        PineconeClientConfig().withApiKey(dotenv["PINECONE_API_KEY"]).withEnvironment(dotenv["PINECONE_ENV"])
-                            .withProjectName(dotenv["PINECONE_PROJECT_NAME"])
-                    val pineconeClient = PineconeClient(pineconeConfig)
-                    val pinecone = pineconeClient.connect(dotenv["PINECONE_INDEX_NAME"])
-                    val queryRequest = QueryRequest.newBuilder()
-                        .setTopK(2)
-                        .setIncludeValues(true)
-                        .setIncludeMetadata(true)
-                        .addAllVector(embed.map { v -> v.toFloat() })
-                        .build()
-                    val response = pinecone.blockingStub.query(queryRequest)
+
+                    val response = Pinecone.query(embed)
                     val matches = response.matchesList
                         .filter { match -> match.score > 0.75 }
                         .map { match -> match.metadata.fieldsMap }
@@ -166,29 +92,18 @@ fun Application.configureSockets() {
                         .distinct()
 
                     // Fetch docs
-                    val texts = S3Client { region = "us-east-1" }.use { client ->
-                        keys.mapNotNull { s3Key ->
-                            val req = GetObjectRequest {
-                                key = s3Key
-                                bucket = dotenv["S3_BUCKET_NAME"]
-                            }
-                            client.getObject(req) { resp ->
-                                resp.body?.decodeToString()
-                            }
-                        }
-                    }
-                    sendSerialized(ServerMessage(status = Status.PROCESSING))
+                    val texts = keys.mapNotNull { key -> S3.getObject(key) }
 
+                    sendSerialized(ServerMessage(status = Status.PROCESSING))
                     // Add user message to history
                     session.history.add(
                         ChatRequestUserMessage("Context: ${texts.joinToString("\n")}\n\\n---\\n\\nQuestion: ${it.message}\\nAnswer:")
                     )
 
                     // Ask GPT to respond
-                    val completion = openAI
-                        .getChatCompletions(dotenv["COMPLETION_MODEL"], ChatCompletionsOptions(session.history))
+                    val completions = OpenAI.getCompletions(session.history)
 
-                    val choices = completion.choices
+                    val choices = completions.choices
                         .filter { choice -> choice.message.role != ChatRole.USER }
 
                     // Add system message to history
@@ -201,4 +116,3 @@ fun Application.configureSockets() {
         }
     }
 }
-

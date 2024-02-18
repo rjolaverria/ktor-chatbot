@@ -1,10 +1,7 @@
-package com.example.plugins
+package com.chat.plugins
 
 import com.azure.ai.openai.models.ChatRequestMessage
-import com.azure.ai.openai.models.ChatRequestSystemMessage
 import io.ktor.server.application.*
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
 import java.util.*
 
