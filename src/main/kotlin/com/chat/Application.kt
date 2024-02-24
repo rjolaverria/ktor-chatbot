@@ -15,4 +15,5 @@ fun Application.module() {
     configureSerialization()
     configureSecurity()
     configureRouting()
+    configureCors()
 }

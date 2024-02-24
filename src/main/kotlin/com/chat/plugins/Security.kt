@@ -1,31 +1,21 @@
 package com.chat.plugins
 
-import com.azure.ai.openai.models.ChatRequestMessage
 import io.ktor.server.application.*
 import io.ktor.server.sessions.*
-import java.util.*
+import io.ktor.util.*
+import kotlinx.serialization.Serializable
 
-class ChatSessionEntity {
-    val sessionId: UUID = UUID.randomUUID()
-    var lastActivityAt: Long = System.currentTimeMillis()
-    val history: MutableList<ChatRequestMessage> = mutableListOf()
-
-    fun onUserActivity() {
-        this.lastActivityAt = System.currentTimeMillis()
-    }
-}
+@Serializable
+data class ChatSession(val id: String)
 
 fun Application.configureSecurity() {
     install(Sessions) {
-        cookie<ChatSessionEntity>("CHAT_SESSION")
+        cookie<ChatSession>("SESSION")
     }
 
     intercept(ApplicationCallPipeline.Plugins) {
-        if (call.sessions.get<ChatSessionEntity>() == null) {
-            var sessionId = call.parameters["sessionId"].orEmpty()
-            if (sessionId.isNullOrEmpty()) {
-                call.sessions.set(ChatSessionEntity())
-            }
+        if (call.sessions.get<ChatSession>() == null) {
+            call.sessions.set(ChatSession(generateNonce()))
         }
     }
 }

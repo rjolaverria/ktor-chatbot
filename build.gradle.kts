@@ -34,6 +34,7 @@ repositories {
 }
 
 dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.5.0")
     implementation("io.ktor:ktor-server-content-negotiation-jvm")
     implementation("io.ktor:ktor-server-core-jvm")
     implementation("io.ktor:ktor-server-websockets-jvm")
@@ -42,6 +43,7 @@ dependencies {
     implementation("com.h2database:h2:$h2_version")
     implementation("io.ktor:ktor-server-sessions-jvm")
     implementation("io.ktor:ktor-server-netty-jvm")
+    implementation("io.ktor:ktor-server-cors:$ktor_version")
     implementation("ch.qos.logback:logback-classic:$logback_version")
     implementation("com.github.dotenv-org:dotenv-vault-kotlin:$dot_env_version")
     testImplementation("io.ktor:ktor-server-tests-jvm")
