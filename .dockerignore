@@ -1,0 +1,7 @@
+.aws/
+.git/
+.gradle/
+.idea/
+build/
+bin/
+.env
