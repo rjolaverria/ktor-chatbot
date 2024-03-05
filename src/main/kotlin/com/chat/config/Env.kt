@@ -20,4 +20,6 @@ object Env {
     val pineconeIndex: String? = dotenv["PINECONE_INDEX_NAME"] ?: "embeddings"
 
     val s3BucketName: String? = dotenv["S3_BUCKET_NAME"] ?: ""
+
+    val sessionsTableName: String? = dotenv["SESSIONS_TABLE_NAME"] ?: ""
 }
