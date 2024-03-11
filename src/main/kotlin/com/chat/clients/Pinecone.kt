@@ -17,9 +17,9 @@ object Pinecone {
     ).connect(Env.pineconeIndex)
 
 
-    suspend fun query(embed: List<Float>): QueryResponse = withContext(Dispatchers.IO) {
+    suspend fun query(embed: List<Float>, topK: Int = 2): QueryResponse = withContext(Dispatchers.IO) {
         client.blockingStub.query(QueryRequest.newBuilder()
-            .setTopK(2)
+            .setTopK(topK)
             .setIncludeValues(true)
             .setIncludeMetadata(true)
             .addAllVector(embed)

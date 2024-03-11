@@ -22,4 +22,6 @@ object Env {
     val s3BucketName: String? = dotenv["S3_BUCKET_NAME"] ?: ""
 
     val sessionsTableName: String? = dotenv["SESSIONS_TABLE_NAME"] ?: ""
+
+    val cohereApiKey: String? = dotenv["COHERE_API_KEY"] ?: ""
 }

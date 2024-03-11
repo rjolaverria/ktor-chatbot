@@ -1,6 +1,7 @@
 package com.chat
 
 import com.azure.ai.openai.models.ChatRole
+import com.chat.clients.Cohere
 import com.chat.clients.OpenAI
 import com.chat.clients.Pinecone
 import com.chat.clients.S3
@@ -15,7 +16,6 @@ import java.util.concurrent.ConcurrentHashMap
 
 
 object Bot {
-
     private val sessions = ConcurrentHashMap<String, Conversation>()
 
     private suspend fun sessionJoined(
@@ -97,7 +97,7 @@ object Bot {
         // Query by vector to verify
         sendSerialized(Message(type = MessageType.STATUS, text = Status.SEARCHING.toString()))
 
-        val response = Pinecone.query(embed)
+        val response = Pinecone.query(embed, 5)
         val matches = response.matchesList
             .filter { match -> match.score > 0.75 }
             .map { match -> match.metadata.fieldsMap }
@@ -110,13 +110,17 @@ object Bot {
         // Fetch docs
         val texts = keys.mapNotNull { key -> S3.getObject(key) }
 
+        // Rerank
+        val ranks = if(texts.size > 3) Cohere.rerank(it.text, texts) else null
+        val rerankedText = ranks?.results?.map { rank -> texts[rank.index] } ?: texts
+
         sendSerialized(Message(type = MessageType.STATUS, text = Status.PROCESSING.toString()))
         // Add user message to history
         conversation.addMessage(
             Message(
                 sessionId = session.id,
                 type = MessageType.USER,
-                context = texts.joinToString("\n"),
+                context = rerankedText.joinToString("\n"),
                 text = it.text
             )
         )
